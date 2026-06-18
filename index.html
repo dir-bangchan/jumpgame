@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Scratch Adventure AR : Mission Coding</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Mitr:wght@300;400;500;600&display=swap');
+        
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Mitr', sans-serif;
+            background-color: #1e1e1e;
+            user-select: none;
+        }
+
+        /* Glassmorphism Classes */
+        .glass {
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        }
+
+        .glass-panel {
+            background: rgba(25, 30, 50, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+        }
+
+        #gameCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 10;
+        }
+
+        #videoElement {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            transform: scaleX(-1); /* สลับซ้ายขวาให้เหมือนกระจก */
+            z-index: 1;
+            opacity: 0.5; /* ให้เห็นฉากหลังจางๆ */
+        }
+
+        /* UI Overlays */
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 20;
+            pointer-events: none;
+        }
+
+        .interactive {
+            pointer-events: auto;
+        }
+
+        /* Confetti Animation */
+        @keyframes fall {
+            to { transform: translateY(100vh) rotate(720deg); }
+        }
+        .confetti {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: #f00;
+            top: -10px;
+            animation: fall 3s linear infinite;
+        }
+
+        /* Hide elements utility */
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <video id="videoElement" autoplay playsinline></video>
+    
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="uiContainer" class="ui-layer">
+        
+        <div id="hud" class="hidden w-full p-4 flex justify-between items-start text-white">
+            <div class="glass px-4 py-2 rounded-2xl flex flex-col gap-1">
+                <div class="text-xl font-bold text-yellow-300">Level: <span id="uiLevel">1</span></div>
+                <div class="font-medium">Score: <span id="uiScore">0</span></div>
+                <div class="font-medium">Coins: <span id="uiCoins">0</span> 🪙</div>
+                <div class="text-red-400 font-bold">HP: <span id="uiHp">❤️❤️❤️</span></div>
+            </div>
+            
+            <div class="glass px-4 py-2 rounded-2xl flex flex-col items-end gap-1">
+                <div class="text-sm">AR Status: <span id="uiArStatus" class="text-yellow-400">กำลังโหลด...</span></div>
+                <div class="text-sm">Hand Detect: <span id="uiHandStatus" class="text-red-400">🔴 ไม่พบมือ</span></div>
+                <div class="text-sm mt-2 text-blue-200">เป้าหมาย: <span id="uiMission">เก็บบล็อก Move</span></div>
+            </div>
+        </div>
+
+        <div id="startScreen" class="absolute inset-0 flex flex-col items-center justify-center interactive bg-black/60 backdrop-blur-sm transition-opacity duration-500">
+            <h1 class="text-5xl md:text-7xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-500 mb-4 drop-shadow-lg text-center">
+                Scratch Adventure AR<br><span class="text-3xl md:text-5xl text-blue-400">Mission Coding</span>
+            </h1>
+            <p class="text-white text-lg mb-8 text-center max-w-lg">
+                เกมผจญภัยเรียนรู้โค้ดดิ้ง<br>ควบคุมด้วยมือผ่านกล้อง (AR) หรือใช้ปุ่มลูกศร/Spacebar
+            </p>
+            <div class="flex gap-4">
+                <button onclick="showTutorial()" class="glass-panel text-white font-bold py-3 px-8 rounded-full hover:bg-blue-600/50 hover:scale-105 transition-transform text-xl border-blue-400 border-2">
+                    How To Play
+                </button>
+                <button onclick="startGame()" class="bg-gradient-to-r from-green-400 to-green-600 text-white font-bold py-3 px-8 rounded-full hover:scale-105 transition-transform text-xl shadow-[0_0_15px_rgba(74,222,128,0.5)] border-2 border-green-300">
+                    START GAME
+                </button>
+            </div>
+        </div>
+
+        <div id="tutorialScreen" class="hidden absolute inset-0 flex flex-col items-center justify-center interactive bg-black/80 backdrop-blur-md">
+            <div class="glass-panel p-8 rounded-3xl max-w-2xl text-white text-center border-blue-400">
+                <h2 class="text-4xl font-bold text-yellow-400 mb-6">วิธีควบคุมเกม (AR Control)</h2>
+                <div class="grid grid-cols-3 gap-6 mb-8 text-xl">
+                    <div class="flex flex-col items-center bg-white/10 p-4 rounded-xl">
+                        <span class="text-5xl mb-2">✊</span>
+                        <span>กำมือ</span>
+                        <span class="text-blue-300 text-sm mt-1">เดินซ้าย</span>
+                    </div>
+                    <div class="flex flex-col items-center bg-white/10 p-4 rounded-xl">
+                        <span class="text-5xl mb-2">🖐️</span>
+                        <span>กางมือ</span>
+                        <span class="text-blue-300 text-sm mt-1">เดินขวา</span>
+                    </div>
+                    <div class="flex flex-col items-center bg-white/10 p-4 rounded-xl">
+                        <span class="text-5xl mb-2">🤏</span>
+                        <span>จีบนิ้ว</span>
+                        <span class="text-blue-300 text-sm mt-1">กระโดด</span>
+                    </div>
+                </div>
+                <div class="text-left text-sm text-gray-300 mb-6 bg-black/30 p-4 rounded-lg">
+                    * ยกมือไว้ตรงกลางหน้าอกเพื่อให้กล้องจับภาพได้ดีที่สุด<br>
+                    * สามารถใช้ปุ่มลูกศร (← →) และ Spacebar แทนได้หากไม่สะดวกใช้กล้อง
+                </div>
+                <button onclick="closeTutorial()" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-8 rounded-full transition-transform hover:scale-105">
+                    เข้าใจแล้ว
+                </button>
+            </div>
+        </div>
+
+        <div id="quizScreen" class="hidden absolute inset-0 flex flex-col items-center justify-center interactive bg-black/70 backdrop-blur-md z-30">
+            <div class="glass-panel p-8 rounded-3xl max-w-xl w-[90%] text-white text-center border-orange-400 border-2 shadow-[0_0_30px_rgba(249,115,22,0.3)]">
+                <div class="text-orange-400 text-xl font-bold mb-2">🧩 Coding Challenge!</div>
+                <h2 id="quizQuestion" class="text-2xl font-medium mb-6">ต้องการให้ตัวละครเดิน เลือกบล็อกใด?</h2>
+                
+                <div class="flex flex-col gap-4">
+                    <button onclick="checkAnswer('A')" class="glass hover:bg-white/30 text-left px-6 py-4 rounded-xl text-xl transition-colors border-l-4 border-l-blue-400">
+                        <span class="font-bold text-blue-300 mr-2">A.</span> <span id="quizA">Move 10 Steps</span>
+                    </button>
+                    <button onclick="checkAnswer('B')" class="glass hover:bg-white/30 text-left px-6 py-4 rounded-xl text-xl transition-colors border-l-4 border-l-green-400">
+                        <span class="font-bold text-green-300 mr-2">B.</span> <span id="quizB">Play Sound</span>
+                    </button>
+                    <button onclick="checkAnswer('C')" class="glass hover:bg-white/30 text-left px-6 py-4 rounded-xl text-xl transition-colors border-l-4 border-l-purple-400">
+                        <span class="font-bold text-purple-300 mr-2">C.</span> <span id="quizC">Say Hello</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="levelCompleteScreen" class="hidden absolute inset-0 flex flex-col items-center justify-center interactive bg-green-900/80 backdrop-blur-md z-40">
+            <h1 class="text-6xl font-bold text-yellow-400 mb-4 drop-shadow-lg">LEVEL CLEAR! 🎉</h1>
+            <p class="text-white text-2xl mb-8">เยี่ยมมาก! คุณแก้ปัญหาโค้ดสำเร็จ</p>
+            <div class="glass-panel p-6 rounded-2xl mb-8 flex gap-8 text-center text-white">
+                <div>
+                    <div class="text-sm text-gray-300">Level Bonus</div>
+                    <div class="text-3xl font-bold text-green-400">+200</div>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-300">Total Score</div>
+                    <div id="lcTotalScore" class="text-3xl font-bold text-yellow-400">0</div>
+                </div>
+            </div>
+            <button onclick="nextLevel()" class="bg-yellow-500 hover:bg-yellow-400 text-black font-bold py-3 px-10 rounded-full transition-transform hover:scale-105 text-xl shadow-lg">
+                ด่านต่อไป ➡️
+            </button>
+        </div>
+
+        <div id="allClearScreen" class="hidden absolute inset-0 flex flex-col items-center justify-center interactive bg-blue-900/90 backdrop-blur-lg z-50 overflow-hidden">
+            <div id="confettiContainer"></div>
+            <h1 class="text-5xl md:text-7xl font-bold text-yellow-400 mb-2 drop-shadow-[0_0_20px_rgba(250,204,21,0.8)]">Scratch Master! 🏆</h1>
+            <h2 class="text-3xl md:text-4xl font-bold text-white mb-8">Coding Hero!</h2>
+            <div class="glass-panel p-8 rounded-3xl text-center text-white border-yellow-400 border-4 z-10">
+                <div class="text-2xl mb-4">คะแนนรวมทั้งหมด</div>
+                <div id="finalScore" class="text-7xl font-bold text-yellow-300 mb-6 drop-shadow-md">0</div>
+                <p class="text-lg text-gray-200 mb-8 max-w-md">สุดยอดไปเลย! คุณได้เรียนรู้พื้นฐานการเขียนโปรแกรมทั้ง 10 บทเรียนแล้ว</p>
+                <button onclick="location.reload()" class="bg-white text-blue-900 hover:bg-gray-200 font-bold py-3 px-8 rounded-full transition-transform hover:scale-105 text-xl">
+                    เล่นอีกครั้ง 🔄
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+<script>
+/* ==========================================
+   ข้อมูลระดับและคำถาม (Level & Quiz Data)
+========================================== */
+const LEVEL_DATA = [
+    { level: 1, topic: "Move Sprite", mission: "เก็บบล็อก Move", 
+      q: "ต้องการให้ตัวละครเดินไปข้างหน้า ต้องใช้บล็อกใด?", ansA: "Move 10 Steps", ansB: "Play Sound", ansC: "Say Hello", correct: 'A' },
+    { level: 2, topic: "Talking Sprite", mission: "เก็บบล็อกพูด", 
+      q: "ถ้าอยากให้ตัวละครพูดคำว่า 'สวัสดี' ต้องใช้บล็อกใด?", ansA: "Next Backdrop", ansB: "Say Hello", ansC: "Turn 15 degrees", correct: 'B' },
+    { level: 3, topic: "Sound World", mission: "เก็บบล็อกเสียง", 
+      q: "ต้องการเล่นเสียงแมวร้อง ต้องเลือกคำสั่งหมวดใด?", ansA: "Motion", ansB: "Looks", ansC: "Sound", correct: 'C' },
+    { level: 4, topic: "Loop Forest", mission: "เก็บบล็อก Forever", 
+      q: "บล็อก 'Forever' ทำหน้าที่อะไรในโปรแกรม?", ansA: "ทำซ้ำไม่สิ้นสุด", ansB: "หยุดโปรแกรมทันที", ansC: "ซ่อนตัวละคร", correct: 'A' },
+    { level: 5, topic: "Repeat Cave", mission: "เก็บบล็อก Repeat", 
+      q: "ถ้าต้องการให้เดิน 5 ก้าวแล้วหยุด ควรใช้บล็อกใดควบคู่กับ Move?", ansA: "Forever", ansB: "Repeat 5", ansC: "Wait 1 sec", correct: 'B' },
+    { level: 6, topic: "Keyboard Castle", mission: "เก็บบล็อก Event", 
+      q: "บล็อก 'When Space key pressed' อยู่ในหมวดหมู่ใด?", ansA: "Control", ansB: "Events", ansC: "Variables", correct: 'B' },
+    { level: 7, topic: "Score Island", mission: "เก็บบล็อก ตัวแปร", 
+      q: "ในการสร้างระบบ 'คะแนน' เราต้องใช้เครื่องมือใด?", ansA: "Variables (ตัวแปร)", ansB: "Sensing", ansC: "Operators", correct: 'A' },
+    { level: 8, topic: "Touch Bridge", mission: "เก็บบล็อก สัมผัส", 
+      q: "อยากรู้ว่าตัวละครชนกำแพงหรือไม่ ใช้บล็อกใดเช็คเงื่อนไข?", ansA: "If touching wall?", ansB: "Set size to 100%", ansC: "Show", correct: 'A' },
+    { level: 9, topic: "Scratch Boss", mission: "เก็บบล็อก อัลกอริทึม", 
+      q: "เรียงลำดับที่ถูกต้องเพื่อให้ตัวละครเดินแล้วพูด?", ansA: "Say -> Move -> Start", ansB: "Start -> Move -> Say", ansC: "Move -> Start -> Say", correct: 'B' },
+    { level: 10, topic: "Scratch Master", mission: "เก็บบล็อก ชัยชนะ!", 
+      q: "การคิดเป็นขั้นตอนเพื่อแก้ปัญหา เรียกว่าอะไร?", ansA: "Algorithm", ansB: "Animation", ansC: "Application", correct: 'A' }
+];
+
+/* ==========================================
+   Game Classes (OOP Structure)
+========================================== */
+class Game {
+    constructor() {
+        this.canvas = document.getElementById('gameCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.width = window.innerWidth;
+        this.height = window.innerHeight;
+        this.canvas.width = this.width;
+        this.canvas.height = this.height;
+
+        // Game State
+        this.state = 'MENU'; // MENU, PLAY, QUIZ, LEVEL_END, GAMEOVER, ALL_CLEAR
+        this.level = 1;
+        this.score = 0;
+        this.coins = 0;
+        this.cameraX = 0;
+        this.gravity = 0.6;
+        
+        // Entities
+        this.player = new Player(this);
+        this.platforms = [];
+        this.items = [];
+        this.enemies = [];
+        this.particles = [];
+
+        // AR & Input
+        this.arGesture = { state: 'neutral', isPinch: false, pointer: null }; // state: neutral, fist, open
+        this.keys = { left: false, right: false, up: false };
+
+        this.initEventListeners();
+        window.addEventListener('resize', () => this.resize());
+    }
+
+    resize() {
+        this.width = window.innerWidth;
+        this.height = window.innerHeight;
+        this.canvas.width = this.width;
+        this.canvas.height = this.height;
+    }
+
+    initEventListeners() {
+        window.addEventListener('keydown', (e) => {
+            if(e.code === 'ArrowLeft' || e.code === 'KeyA') this.keys.left = true;
+            if(e.code === 'ArrowRight' || e.code === 'KeyD') this.keys.right = true;
+            if(e.code === 'ArrowUp' || e.code === 'Space' || e.code === 'KeyW') this.keys.up = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            if(e.code === 'ArrowLeft' || e.code === 'KeyA') this.keys.left = false;
+            if(e.code === 'ArrowRight' || e.code === 'KeyD') this.keys.right = false;
+            if(e.code === 'ArrowUp' || e.code === 'Space' || e.code === 'KeyW') this.keys.up = false;
+        });
+    }
+
+    loadLevel(levelNum) {
+        this.platforms = [];
+        this.items = [];
+        this.enemies = [];
+        this.cameraX = 0;
+        
+        // Reset Player
+        this.player.x = 100;
+        this.player.y = this.height / 2;
+        this.player.vx = 0;
+        this.player.vy = 0;
+
+        const floorY = this.height - 100;
+
+        // สร้างพื้น Platform แนวนอนยาวๆ
+        let cursorX = 0;
+        for(let i=0; i<15; i++) {
+            let pWidth = 300 + Math.random() * 200;
+            // สุ่มความสูงพื้นบ้างในด่านหลังๆ
+            let pY = floorY - (Math.random() > 0.6 && levelNum > 2 ? Math.random() * 150 : 0);
+            
+            this.platforms.push(new Platform(cursorX, pY, pWidth, this.height - pY));
+            
+            // ใส่เหรียญ
+            if(Math.random() > 0.3) {
+                this.items.push(new Item(cursorX + pWidth/2, pY - 50, 'coin', '🪙'));
+            }
+            
+            // ใส่ศัตรู
+            if(i > 0 && Math.random() > 0.5) {
+                const enemyType = ['🐛', '🦠', '👾'][Math.floor(Math.random()*3)];
+                this.enemies.push(new Enemy(cursorX + pWidth/2, pY - 40, enemyType));
+            }
+
+            // Gap ระหว่าง platform
+            cursorX += pWidth + (100 + Math.random() * 150);
+        }
+
+        // ใส่เป้าหมายหลัก (Scratch Block) ไว้ท้ายสุด
+        this.items.push(new Item(cursorX - 300, floorY - 100, 'block', '🧩'));
+        
+        // Update UI
+        document.getElementById('uiLevel').innerText = levelNum;
+        document.getElementById('uiMission').innerText = LEVEL_DATA[levelNum-1].mission;
+    }
+
+    updateUI() {
+        document.getElementById('uiScore').innerText = this.score;
+        document.getElementById('uiCoins').innerText = this.coins;
+        document.getElementById('uiHp').innerText = '❤️'.repeat(this.player.hp);
+    }
+
+    update() {
+        if(this.state !== 'PLAY') return;
+
+        this.player.update();
+        
+        // Camera Follow
+        const targetCamX = this.player.x - this.width / 3;
+        if(targetCamX > this.cameraX) {
+            this.cameraX = targetCamX;
+        }
+
+        // Update Entities
+        this.enemies.forEach(e => e.update(this.platforms));
+        this.particles.forEach((p, i) => {
+            p.update();
+            if(p.life <= 0) this.particles.splice(i, 1);
+        });
+
+        // ตกเหว
+        if(this.player.y > this.height + 100) {
+            this.player.takeDamage();
+        }
+
+        this.updateUI();
+    }
+
+    draw() {
+        this.ctx.clearRect(0, 0, this.width, this.height);
+
+        // วาด Background สไตล์ท้องฟ้าและเมฆแบบ Emoji
+        this.ctx.font = "100px Arial";
+        this.ctx.fillText("☁️", 200 - (this.cameraX * 0.1) % this.width, 150);
+        this.ctx.fillText("☁️", 800 - (this.cameraX * 0.1) % this.width, 250);
+
+        this.ctx.save();
+        this.ctx.translate(-this.cameraX, 0);
+
+        // Draw Platforms (สไตล์การ์ตูน)
+        this.platforms.forEach(p => p.draw(this.ctx));
+        
+        // Draw Items
+        this.items.forEach(i => i.draw(this.ctx));
+
+        // Draw Enemies
+        this.enemies.forEach(e => e.draw(this.ctx));
+
+        // Draw Player
+        this.player.draw(this.ctx);
+
+        // Draw Particles
+        this.particles.forEach(p => p.draw(this.ctx));
+
+        this.ctx.restore();
+
+        // Draw AR Cursor & Skeleton (วาดทับแบบ Fixed)
+        this.drawAROverlay();
+    }
+
+    drawAROverlay() {
+        if(this.arGesture.pointer) {
+            const p = this.arGesture.pointer;
+            const x = p.x * this.width;
+            const y = p.y * this.height;
+
+            this.ctx.beginPath();
+            this.ctx.arc(x, y, 15, 0, 2 * Math.PI);
+            this.ctx.fillStyle = "rgba(0, 255, 255, 0.5)";
+            this.ctx.fill();
+            this.ctx.lineWidth = 2;
+            this.ctx.strokeStyle = "cyan";
+            this.ctx.stroke();
+
+            // แสดงสถานะมือที่ตรวจจับได้
+            this.ctx.fillStyle = "white";
+            this.ctx.font = "20px Mitr";
+            let actionText = "";
+            if(this.arGesture.isPinch) actionText = "กระโดด! 👆";
+            else if(this.arGesture.state === 'fist') actionText = "เดินซ้าย ⬅️";
+            else if(this.arGesture.state === 'open') actionText = "เดินขวา ➡️";
+            this.ctx.fillText(actionText, x + 20, y);
+        }
+    }
+
+    triggerQuiz() {
+        this.state = 'QUIZ';
+        const qData = LEVEL_DATA[this.level - 1];
+        document.getElementById('quizQuestion').innerText = qData.q;
+        document.getElementById('quizA').innerText = qData.ansA;
+        document.getElementById('quizB').innerText = qData.ansB;
+        document.getElementById('quizC').innerText = qData.ansC;
+        document.getElementById('quizScreen').classList.remove('hidden');
+    }
+
+    createConfetti(x, y, count=10) {
+        for(let i=0; i<count; i++) {
+            this.particles.push(new Particle(x, y, "⭐️"));
+        }
+    }
+}
+
+class Player {
+    constructor(game) {
+        this.game = game;
+        this.x = 100;
+        this.y = 300;
+        this.width = 40;
+        this.height = 40;
+        this.vx = 0;
+        this.vy = 0;
+        this.speed = 6;
+        this.jumpForce = -14;
+        this.grounded = false;
+        this.hp = 3;
+        this.emoji = '🐱';
+        this.invulnerable = 0;
+    }
+
+    update() {
+        // ประมวลผล Input รวมกัน (Keyboard + AR)
+        let moveLeft = this.game.keys.left || this.game.arGesture.state === 'fist';
+        let moveRight = this.game.keys.right || this.game.arGesture.state === 'open';
+        let doJump = this.game.keys.up || this.game.arGesture.isPinch;
+
+        // การเคลื่อนที่ X
+        if (moveLeft) this.vx = -this.speed;
+        else if (moveRight) this.vx = this.speed;
+        else this.vx = 0;
+
+        // กระโดด
+        if (doJump && this.grounded) {
+            this.vy = this.jumpForce;
+            this.grounded = false;
+        }
+
+        // ฟิสิกส์แกน Y (Gravity)
+        this.vy += this.game.gravity;
+        
+        // ทดสอบขยับ X
+        this.x += this.vx;
+        this.checkCollisionsX();
+
+        // ทดสอบขยับ Y
+        this.y += this.vy;
+        this.checkCollisionsY();
+
+        // การชนไอเทม
+        this.checkItems();
+
+        // การชนศัตรู
+        if(this.invulnerable > 0) this.invulnerable--;
+        else this.checkEnemies();
+    }
+
+    checkCollisionsY() {
+        this.grounded = false;
+        for (let p of this.game.platforms) {
+            // เช็คว่าตกกระทบพื้นจากด้านบนหรือไม่
+            if (this.x < p.x + p.w && this.x + this.width > p.x &&
+                this.y + this.height > p.y && this.y + this.height < p.y + this.vy + 2) {
+                this.y = p.y - this.height;
+                this.vy = 0;
+                this.grounded = true;
+                break;
+            }
+        }
+    }
+
+    checkCollisionsX() {
+        // ซ้ายสุดของจอ
+        if(this.x < this.game.cameraX) {
+            this.x = this.game.cameraX;
+        }
+        // ชนกล่อง (แบบง่าย)
+        for (let p of this.game.platforms) {
+            if (this.y < p.y + p.h && this.y + this.height > p.y) {
+                if (this.x + this.width > p.x && this.x < p.x + p.w) {
+                    if (this.vx > 0) this.x = p.x - this.width;
+                    else if (this.vx < 0) this.x = p.x + p.w;
+                    this.vx = 0;
+                }
+            }
+        }
+    }
+
+    checkItems() {
+        for (let i = this.game.items.length - 1; i >= 0; i--) {
+            let item = this.game.items[i];
+            // รัศมีการชนประมาณ 30
+            if (Math.hypot((this.x+20) - item.x, (this.y+20) - item.y) < 40) {
+                if(item.type === 'coin') {
+                    this.game.coins++;
+                    this.game.score += 10;
+                    this.game.createConfetti(item.x, item.y, 3);
+                } else if (item.type === 'block') {
+                    this.game.triggerQuiz();
+                }
+                this.game.items.splice(i, 1);
+            }
+        }
+    }
+
+    checkEnemies() {
+        for (let e of this.game.enemies) {
+            if (Math.hypot((this.x+20) - e.x, (this.y+20) - e.y) < 35) {
+                // เหยียบหัว
+                if(this.vy > 0 && this.y + this.height < e.y + 20) {
+                    this.game.score += 20;
+                    this.vy = this.jumpForce * 0.8; // เด้งนิดนึง
+                    e.dead = true;
+                    this.game.createConfetti(e.x, e.y, 5);
+                } else {
+                    this.takeDamage();
+                }
+            }
+        }
+        // ลบศัตรูที่ตาย
+        this.game.enemies = this.game.enemies.filter(e => !e.dead);
+    }
+
+    takeDamage() {
+        if(this.invulnerable > 0) return;
+        this.hp--;
+        this.game.score = Math.max(0, this.game.score - 20);
+        this.invulnerable = 60; // กระพริบ 60 เฟรม
+        
+        if(this.hp <= 0) {
+            // ตาย เริ่มด่านใหม่
+            this.hp = 3;
+            this.game.loadLevel(this.game.level);
+        } else {
+            // เด้งกลับ
+            this.vy = -10;
+        }
+    }
+
+    draw(ctx) {
+        if(this.invulnerable > 0 && Math.floor(Date.now() / 100) % 2 === 0) return; // กระพริบ
+        
+        ctx.font = "40px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        
+        ctx.save();
+        ctx.translate(this.x + this.width/2, this.y + this.height/2);
+        // หันหน้าซ้ายขวา
+        if(this.vx < 0) ctx.scale(-1, 1);
+        ctx.fillText(this.emoji, 0, 0);
+        ctx.restore();
+    }
+}
+
+class Platform {
+    constructor(x, y, w, h) {
+        this.x = x;
+        this.y = y;
+        this.w = w;
+        this.h = h;
+    }
+    draw(ctx) {
+        // วาดสไตล์บล็อกสีเขียว-น้ำตาล
+        ctx.fillStyle = "#8B4513";
+        ctx.fillRect(this.x, this.y, this.w, this.h);
+        ctx.fillStyle = "#228B22";
+        ctx.fillRect(this.x, this.y, this.w, 15);
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(this.x, this.y, this.w, this.h);
+    }
+}
+
+class Item {
+    constructor(x, y, type, emoji) {
+        this.x = x;
+        this.y = y;
+        this.type = type;
+        this.emoji = emoji;
+        this.baseY = y;
+        this.time = Math.random() * Math.PI * 2;
+    }
+    draw(ctx) {
+        this.time += 0.05;
+        const currentY = this.baseY + Math.sin(this.time) * 10; // ลอยขึ้นลง
+        ctx.font = this.type === 'block' ? "45px Arial" : "30px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(this.emoji, this.x, currentY);
+    }
+}
+
+class Enemy {
+    constructor(x, y, emoji) {
+        this.x = x;
+        this.y = y;
+        this.emoji = emoji;
+        this.vx = -1.5; // เดินไปทางซ้าย
+        this.dead = false;
+        this.startX = x;
+    }
+    update(platforms) {
+        this.x += this.vx;
+        // เดินกลับไปมา
+        if(Math.abs(this.x - this.startX) > 100) {
+            this.vx *= -1;
+        }
+    }
+    draw(ctx) {
+        ctx.font = "35px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(this.emoji, this.x, this.y);
+    }
+}
+
+class Particle {
+    constructor(x, y, emoji) {
+        this.x = x;
+        this.y = y;
+        this.emoji = emoji;
+        this.vx = (Math.random() - 0.5) * 10;
+        this.vy = (Math.random() - 1) * 10;
+        this.life = 1.0;
+    }
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vy += 0.5; // gravity
+        this.life -= 0.02;
+    }
+    draw(ctx) {
+        ctx.globalAlpha = Math.max(0, this.life);
+        ctx.font = "20px Arial";
+        ctx.fillText(this.emoji, this.x, this.y);
+        ctx.globalAlpha = 1.0;
+    }
+}
+
+/* ==========================================
+   Main Game Logic & Functions
+========================================== */
+const game = new Game();
+
+function startGame() {
+    document.getElementById('startScreen').classList.add('hidden');
+    document.getElementById('hud').classList.remove('hidden');
+    game.state = 'PLAY';
+    game.loadLevel(game.level);
+    initMediaPipe(); // เริ่มเปิดกล้องเมื่อกด Start
+}
+
+function showTutorial() {
+    document.getElementById('tutorialScreen').classList.remove('hidden');
+}
+
+function closeTutorial() {
+    document.getElementById('tutorialScreen').classList.add('hidden');
+}
+
+function checkAnswer(choice) {
+    const qData = LEVEL_DATA[game.level - 1];
+    document.getElementById('quizScreen').classList.add('hidden');
+    
+    if(choice === qData.correct) {
+        // ตอบถูก
+        game.score += 100;
+        showLevelComplete();
+    } else {
+        // ตอบผิด
+        game.score -= 20;
+        alert("อ๊ะ! ยังไม่ถูกนะ พลังชีวิตลดลง 1 ขีด ลองหาคำตอบใหม่ในด่านดูนะ");
+        game.player.takeDamage();
+        game.state = 'PLAY';
+    }
+}
+
+function showLevelComplete() {
+    game.state = 'LEVEL_END';
+    game.score += 200; // Bonus
+    document.getElementById('lcTotalScore').innerText = game.score;
+    document.getElementById('levelCompleteScreen').classList.remove('hidden');
+}
+
+function nextLevel() {
+    document.getElementById('levelCompleteScreen').classList.add('hidden');
+    game.level++;
+    if(game.level > 10) {
+        showAllClear();
+    } else {
+        game.state = 'PLAY';
+        game.loadLevel(game.level);
+    }
+}
+
+function showAllClear() {
+    game.state = 'ALL_CLEAR';
+    document.getElementById('hud').classList.add('hidden');
+    document.getElementById('finalScore').innerText = game.score;
+    document.getElementById('allClearScreen').classList.remove('hidden');
+    
+    // สร้างพลุ
+    const container = document.getElementById('confettiContainer');
+    for(let i=0; i<50; i++) {
+        let conf = document.createElement('div');
+        conf.className = 'confetti';
+        conf.style.left = Math.random() * 100 + 'vw';
+        conf.style.backgroundColor = ['#f00', '#0f0', '#00f', '#ff0', '#f0f'][Math.floor(Math.random()*5)];
+        conf.style.animationDuration = (Math.random() * 2 + 2) + 's';
+        conf.style.animationDelay = Math.random() * 2 + 's';
+        container.appendChild(conf);
+    }
+}
+
+/* ==========================================
+   MediaPipe Hands (AR Setup)
+========================================== */
+const videoElement = document.getElementById('videoElement');
+
+function onResults(results) {
+    const handStatusUi = document.getElementById('uiHandStatus');
+
+    // ตรวจพบมือ
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        handStatusUi.innerText = "🟢 ตรวจพบมือ";
+        handStatusUi.className = "text-green-400";
+        
+        const landmarks = results.multiHandLandmarks[0]; // ใช้มือแรกที่เจอ
+        
+        // จุดสังเกต
+        const wrist = landmarks[0];
+        const thumb = landmarks[4];
+        const index = landmarks[8];
+        const middle = landmarks[12];
+        const pinky = landmarks[20];
+
+        // แก้ปัญหา Mirror (พิกัด X จากกล้องหน้าจะสลับซ้ายขวา)
+        // เนื่องจากเรา transform: scaleX(-1) วิดีโอแล้ว ให้ปรับพิกัด X ใหม่
+        const pX = 1 - index.x;
+        const pY = index.y;
+        game.arGesture.pointer = { x: pX, y: pY };
+
+        // 1. ตรวจสอบการจีบนิ้ว (Pinch) - ใช้นิ้วโป้งกับนิ้วชี้
+        // ใช้สูตรตาม Prompt
+        const dx = thumb.x - index.x;
+        const dy = thumb.y - index.y;
+        const distance = Math.sqrt(dx*dx + dy*dy);
+        
+        game.arGesture.isPinch = distance < 0.05; // ค่า Threshold (ปรับได้)
+
+        // 2. ตรวจสอบกำมือ / กางมือ (Fist vs Open)
+        // วัดระยะจากข้อมือถึงปลายนิ้วกลาง
+        const midDist = Math.sqrt(Math.pow(middle.x - wrist.x, 2) + Math.pow(middle.y - wrist.y, 2));
+        
+        if (midDist < 0.2) {
+            game.arGesture.state = 'fist'; // กำมือ
+        } else if (midDist > 0.4) {
+            game.arGesture.state = 'open'; // กางมือ
+        } else {
+            game.arGesture.state = 'neutral';
+        }
+
+    } else {
+        handStatusUi.innerText = "🔴 ไม่พบมือ";
+        handStatusUi.className = "text-red-400";
+        game.arGesture.state = 'neutral';
+        game.arGesture.isPinch = false;
+        game.arGesture.pointer = null;
+    }
+}
+
+let mediaPipeInitialized = false;
+
+function initMediaPipe() {
+    if(mediaPipeInitialized) return;
+    
+    document.getElementById('uiArStatus').innerText = "กำลังเปิดกล้อง...";
+    
+    const hands = new Hands({locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+    }});
+    
+    hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+    
+    hands.onResults(onResults);
+    
+    const camera = new Camera(videoElement, {
+        onFrame: async () => {
+            await hands.send({image: videoElement});
+        },
+        width: 640,
+        height: 480
+    });
+    
+    camera.start().then(() => {
+        document.getElementById('uiArStatus').innerText = "พร้อมใช้งาน ✅";
+        document.getElementById('uiArStatus').className = "text-green-400";
+        mediaPipeInitialized = true;
+    }).catch((err) => {
+        console.error("Camera error:", err);
+        document.getElementById('uiArStatus').innerText = "กล้องมีปัญหา ❌";
+        document.getElementById('uiArStatus').className = "text-red-400";
+    });
+}
+
+/* ==========================================
+   Main Game Loop (requestAnimationFrame)
+   แยกออกจาก MediaPipe อย่างชัดเจนเพื่อให้ FPS นิ่ง
+========================================== */
+function drawLoop() {
+    game.update();
+    game.draw();
+    requestAnimationFrame(drawLoop);
+}
+
+// Start Draw Loop
+requestAnimationFrame(drawLoop);
+
+</script>
+</body>
+</html>
